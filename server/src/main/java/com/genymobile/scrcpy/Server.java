@@ -1,264 +1,169 @@
 package com.genymobile.scrcpy;
 
-import android.os.BatteryManager;
+import android.graphics.Rect;
+import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
 import android.os.Build;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Locale;
 
 public final class Server {
 
-    public static final String SERVER_PATH;
-
-    static {
-        String[] classPaths = System.getProperty("java.class.path").split(File.pathSeparator);
-        // By convention, scrcpy is always executed with the absolute path of scrcpy-server.jar as the first item in the classpath
-        SERVER_PATH = classPaths[0];
-    }
-
-    private static class Completion {
-        private int running;
-        private boolean fatalError;
-
-        Completion(int running) {
-            this.running = running;
-        }
-
-        synchronized void addCompleted(boolean fatalError) {
-            --running;
-            if (fatalError) {
-                this.fatalError = true;
-            }
-            if (running == 0 || this.fatalError) {
-                notify();
-            }
-        }
-
-        synchronized void await() {
-            try {
-                while (running > 0 && !fatalError) {
-                    wait();
-                }
-            } catch (InterruptedException e) {
-                // ignore
-            }
-        }
-    }
 
     private Server() {
         // not instantiable
     }
 
-    private static void initAndCleanUp(Options options, CleanUp cleanUp) {
-        // This method is called from its own thread, so it may only configure cleanup actions which are NOT dynamic (i.e. they are configured once
-        // and for all, they cannot be changed from another thread)
-
-        if (options.getShowTouches()) {
-            try {
-                String oldValue = Settings.getAndPutValue(Settings.TABLE_SYSTEM, "show_touches", "1");
-                // If "show touches" was disabled, it must be disabled back on clean up
-                if (!"1".equals(oldValue)) {
-                    if (!cleanUp.setDisableShowTouches(true)) {
-                        Ln.e("Could not disable show touch on exit");
-                    }
-                }
-            } catch (SettingsException e) {
-                Ln.e("Could not change \"show_touches\"", e);
-            }
+    private static void parseArguments(Options options, VideoSettings videoSettings, String... args) {
+        if (args.length < 1) {
+            throw new IllegalArgumentException("Missing client version");
         }
 
-        if (options.getStayAwake()) {
-            int stayOn = BatteryManager.BATTERY_PLUGGED_AC | BatteryManager.BATTERY_PLUGGED_USB | BatteryManager.BATTERY_PLUGGED_WIRELESS;
-            try {
-                String oldValue = Settings.getAndPutValue(Settings.TABLE_GLOBAL, "stay_on_while_plugged_in", String.valueOf(stayOn));
-                try {
-                    int restoreStayOn = Integer.parseInt(oldValue);
-                    if (restoreStayOn != stayOn) {
-                        // Restore only if the current value is different
-                        if (!cleanUp.setRestoreStayOn(restoreStayOn)) {
-                            Ln.e("Could not restore stay on on exit");
-                        }
-                    }
-                } catch (NumberFormatException e) {
-                    // ignore
-                }
-            } catch (SettingsException e) {
-                Ln.e("Could not change \"stay_on_while_plugged_in\"", e);
-            }
+        String clientVersion = args[0];
+        if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
+            throw new IllegalArgumentException(
+                    "The server version (" + BuildConfig.VERSION_NAME + ") does not match the client " + "(" + clientVersion + ")");
         }
 
-        if (options.getPowerOffScreenOnClose()) {
-            if (!cleanUp.setPowerOffScreen(true)) {
-                Ln.e("Could not power off screen on exit");
+        if (args[1].toLowerCase().equals("web")) {
+            options.setServerType(Options.TYPE_WEB_SOCKET);
+            if (args.length > 2) {
+                Ln.Level level = Ln.Level.valueOf(args[2].toUpperCase(Locale.ENGLISH));
+                options.setLogLevel(level);
             }
-        }
-    }
-
-    private static void scrcpy(Options options) throws IOException, ConfigurationException {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && options.getVideoSource() == VideoSource.CAMERA) {
-            Ln.e("Camera mirroring is not supported before Android 12");
-            throw new ConfigurationException("Camera mirroring is not supported");
-        }
-
-        CleanUp cleanUp = null;
-        Thread initThread = null;
-
-        if (options.getCleanup()) {
-            cleanUp = CleanUp.configure(options.getDisplayId());
-            initThread = startInitThread(options, cleanUp);
-        }
-
-        int scid = options.getScid();
-        boolean tunnelForward = options.isTunnelForward();
-        boolean control = options.getControl();
-        boolean video = options.getVideo();
-        boolean audio = options.getAudio();
-        boolean sendDummyByte = options.getSendDummyByte();
-        boolean camera = video && options.getVideoSource() == VideoSource.CAMERA;
-
-        final Device device = camera ? null : new Device(options);
-
-        Workarounds.apply(audio, camera);
-
-        List<AsyncProcessor> asyncProcessors = new ArrayList<>();
-
-        DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte);
-        try {
-            if (options.getSendDeviceMeta()) {
-                connection.sendDeviceMeta(Device.getDeviceName());
+            if (args.length > 3) {
+                int portNumber = Integer.parseInt(args[3]);
+                options.setPortNumber(portNumber);
             }
-
-            if (control) {
-                ControlChannel controlChannel = connection.getControlChannel();
-                Controller controller = new Controller(device, controlChannel, cleanUp, options.getClipboardAutosync(), options.getPowerOn());
-                device.setClipboardListener(text -> {
-                    DeviceMessage msg = DeviceMessage.createClipboard(text);
-                    controller.getSender().send(msg);
-                });
-                asyncProcessors.add(controller);
+            if (args.length > 4) {
+                boolean listenOnAllInterfaces = Boolean.parseBoolean(args[4]);
+                options.setListenOnAllInterfaces(listenOnAllInterfaces);
             }
-
-            if (audio) {
-                AudioCodec audioCodec = options.getAudioCodec();
-                AudioCapture audioCapture = new AudioCapture(options.getAudioSource());
-                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
-                AsyncProcessor audioRecorder;
-                if (audioCodec == AudioCodec.RAW) {
-                    audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
-                } else {
-                    audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options.getAudioBitRate(), options.getAudioCodecOptions(),
-                            options.getAudioEncoder());
-                }
-                asyncProcessors.add(audioRecorder);
-            }
-
-            if (video) {
-                Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
-                        options.getSendFrameMeta());
-                SurfaceCapture surfaceCapture;
-                if (options.getVideoSource() == VideoSource.DISPLAY) {
-                    surfaceCapture = new ScreenCapture(device);
-                } else {
-                    surfaceCapture = new CameraCapture(options.getCameraId(), options.getCameraFacing(), options.getCameraSize(),
-                            options.getMaxSize(), options.getCameraAspectRatio(), options.getCameraFps(), options.getCameraHighSpeed());
-                }
-                SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, videoStreamer, options.getVideoBitRate(), options.getMaxFps(),
-                        options.getVideoCodecOptions(), options.getVideoEncoder(), options.getDownsizeOnError());
-                asyncProcessors.add(surfaceEncoder);
-            }
-
-            Completion completion = new Completion(asyncProcessors.size());
-            for (AsyncProcessor asyncProcessor : asyncProcessors) {
-                asyncProcessor.start((fatalError) -> {
-                    completion.addCompleted(fatalError);
-                });
-            }
-
-            completion.await();
-        } finally {
-            if (initThread != null) {
-                initThread.interrupt();
-            }
-            for (AsyncProcessor asyncProcessor : asyncProcessors) {
-                asyncProcessor.stop();
-            }
-
-            connection.shutdown();
-
-            try {
-                if (initThread != null) {
-                    initThread.join();
-                }
-                for (AsyncProcessor asyncProcessor : asyncProcessors) {
-                    asyncProcessor.join();
-                }
-            } catch (InterruptedException e) {
-                // ignore
-            }
-
-            connection.close();
-        }
-    }
-
-    private static Thread startInitThread(final Options options, final CleanUp cleanUp) {
-        Thread thread = new Thread(() -> initAndCleanUp(options, cleanUp), "init-cleanup");
-        thread.start();
-        return thread;
-    }
-
-    public static void main(String... args) {
-        int status = 0;
-        try {
-            internalMain(args);
-        } catch (Throwable t) {
-            Ln.e(t.getMessage(), t);
-            status = 1;
-        } finally {
-            // By default, the Java process exits when all non-daemon threads are terminated.
-            // The Android SDK might start some non-daemon threads internally, preventing the scrcpy server to exit.
-            // So force the process to exit explicitly.
-            System.exit(status);
-        }
-    }
-
-    private static void internalMain(String... args) throws Exception {
-        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            Ln.e("Exception on thread " + t, e);
-        });
-
-        Options options = Options.parse(args);
-
-        Ln.disableSystemStreams();
-        Ln.initLogLevel(options.getLogLevel());
-
-        Ln.i("Device: [" + Build.MANUFACTURER + "] " + Build.BRAND + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")");
-
-        if (options.getList()) {
-            if (options.getCleanup()) {
-                CleanUp.unlinkSelf();
-            }
-
-            if (options.getListEncoders()) {
-                Ln.i(LogUtils.buildVideoEncoderListMessage());
-                Ln.i(LogUtils.buildAudioEncoderListMessage());
-            }
-            if (options.getListDisplays()) {
-                Ln.i(LogUtils.buildDisplayListMessage());
-            }
-            if (options.getListCameras() || options.getListCameraSizes()) {
-                Workarounds.apply(false, true);
-                Ln.i(LogUtils.buildCameraListMessage(options.getListCameraSizes()));
-            }
-            // Just print the requested data, do not mirror
             return;
         }
 
-        try {
-            scrcpy(options);
-        } catch (ConfigurationException e) {
-            // Do not print stack trace, a user-friendly error-message has already been logged
+        final int expectedParameters = 16;
+        if (args.length != expectedParameters) {
+            throw new IllegalArgumentException("Expecting " + expectedParameters + " parameters");
+        }
+
+        Ln.Level level = Ln.Level.valueOf(args[1].toUpperCase(Locale.ENGLISH));
+        options.setLogLevel(level);
+
+        int maxSize = Integer.parseInt(args[2]);
+        if (maxSize != 0) {
+            videoSettings.setBounds(maxSize, maxSize);
+        }
+
+        int bitRate = Integer.parseInt(args[3]);
+        videoSettings.setBitRate(bitRate);
+
+        int maxFps = Integer.parseInt(args[4]);
+        videoSettings.setMaxFps(maxFps);
+
+        int lockedVideoOrientation = Integer.parseInt(args[5]);
+        videoSettings.setLockedVideoOrientation(lockedVideoOrientation);
+
+        // use "adb forward" instead of "adb tunnel"? (so the server must listen)
+        boolean tunnelForward = Boolean.parseBoolean(args[6]);
+        options.setTunnelForward(tunnelForward);
+
+        Rect crop = parseCrop(args[7]);
+        videoSettings.setCrop(crop);
+
+        boolean sendFrameMeta = Boolean.parseBoolean(args[8]);
+        videoSettings.setSendFrameMeta(sendFrameMeta);
+
+        boolean control = Boolean.parseBoolean(args[9]);
+        options.setControl(control);
+
+        int displayId = Integer.parseInt(args[10]);
+        videoSettings.setDisplayId(displayId);
+
+        boolean showTouches = Boolean.parseBoolean(args[11]);
+        options.setShowTouches(showTouches);
+
+        boolean stayAwake = Boolean.parseBoolean(args[12]);
+        options.setStayAwake(stayAwake);
+
+        String codecOptions = args[13];
+        options.setCodecOptions(codecOptions);
+        videoSettings.setCodecOptions(codecOptions);
+
+        String encoderName = "-".equals(args[14]) ? null : args[14];
+        videoSettings.setEncoderName(encoderName);
+
+        boolean powerOffScreenOnClose = Boolean.parseBoolean(args[15]);
+        options.setPowerOffScreenOnClose(powerOffScreenOnClose);
+    }
+
+    private static Rect parseCrop(String crop) {
+        if ("-".equals(crop)) {
+            return null;
+        }
+        // input format: "width:height:x:y"
+        String[] tokens = crop.split(":");
+        if (tokens.length != 4) {
+            throw new IllegalArgumentException("Crop must contains 4 values separated by colons: \"" + crop + "\"");
+        }
+        int width = Integer.parseInt(tokens[0]);
+        int height = Integer.parseInt(tokens[1]);
+        int x = Integer.parseInt(tokens[2]);
+        int y = Integer.parseInt(tokens[3]);
+        return new Rect(x, y, x + width, y + height);
+    }
+
+    private static void suggestFix(Throwable e) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (e instanceof MediaCodec.CodecException) {
+                MediaCodec.CodecException mce = (MediaCodec.CodecException) e;
+                if (mce.getErrorCode() == 0xfffffc0e) {
+                    Ln.e("The hardware encoder is not able to encode at the given definition.");
+                    Ln.e("Try with a lower definition:");
+                    Ln.e("    scrcpy -m 1024");
+                }
+            }
+        }
+        if (e instanceof InvalidDisplayIdException) {
+            InvalidDisplayIdException idie = (InvalidDisplayIdException) e;
+            int[] displayIds = idie.getAvailableDisplayIds();
+            if (displayIds != null && displayIds.length > 0) {
+                Ln.e("Try to use one of the available display ids:");
+                for (int id : displayIds) {
+                    Ln.e("    scrcpy --display " + id);
+                }
+            }
+        } else if (e instanceof InvalidEncoderException) {
+            InvalidEncoderException iee = (InvalidEncoderException) e;
+            MediaCodecInfo[] encoders = iee.getAvailableEncoders();
+            if (encoders != null && encoders.length > 0) {
+                Ln.e("Try to use one of the available encoders:");
+                for (MediaCodecInfo encoder : encoders) {
+                    Ln.e("    scrcpy --encoder '" + encoder.getName() + "'");
+                }
+            }
+        }
+    }
+
+    public static void main(String... args) throws Exception {
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                Ln.e("Exception on thread " + t, e);
+                suggestFix(e);
+            }
+        });
+
+        Options options = new Options();
+        VideoSettings videoSettings = new VideoSettings();
+        parseArguments(options, videoSettings, args);
+        Ln.initLogLevel(options.getLogLevel());
+        if (options.getServerType() == Options.TYPE_LOCAL_SOCKET) {
+            new DesktopConnection(options, videoSettings);
+        } else if (options.getServerType() == Options.TYPE_WEB_SOCKET) {
+            WSServer wsServer = new WSServer(options);
+            wsServer.setReuseAddr(true);
+            wsServer.run();
         }
     }
 }

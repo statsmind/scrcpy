@@ -1,45 +1,38 @@
 package com.genymobile.scrcpy.wrappers;
 
-import com.genymobile.scrcpy.FakeContext;
-
 import android.annotation.SuppressLint;
-import android.content.Context;
-import android.hardware.camera2.CameraManager;
 import android.os.IBinder;
 import android.os.IInterface;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 
 @SuppressLint("PrivateApi,DiscouragedPrivateApi")
 public final class ServiceManager {
 
-    private static final Method GET_SERVICE_METHOD;
+    public static final String PACKAGE_NAME = "com.android.shell";
+    public static final int USER_ID = 0;
 
-    static {
+    private final Method getServiceMethod;
+
+    private WindowManager windowManager;
+    private DisplayManager displayManager;
+    private InputManager inputManager;
+    private PowerManager powerManager;
+    private StatusBarManager statusBarManager;
+    private ClipboardManager clipboardManager;
+    private ActivityManager activityManager;
+
+    public ServiceManager() {
         try {
-            GET_SERVICE_METHOD = Class.forName("android.os.ServiceManager").getDeclaredMethod("getService", String.class);
+            getServiceMethod = Class.forName("android.os.ServiceManager").getDeclaredMethod("getService", String.class);
         } catch (Exception e) {
             throw new AssertionError(e);
         }
     }
 
-    private static WindowManager windowManager;
-    private static DisplayManager displayManager;
-    private static InputManager inputManager;
-    private static PowerManager powerManager;
-    private static StatusBarManager statusBarManager;
-    private static ClipboardManager clipboardManager;
-    private static ActivityManager activityManager;
-    private static CameraManager cameraManager;
-
-    private ServiceManager() {
-        /* not instantiable */
-    }
-
-    static IInterface getService(String service, String type) {
+    private IInterface getService(String service, String type) {
         try {
-            IBinder binder = (IBinder) GET_SERVICE_METHOD.invoke(null, service);
+            IBinder binder = (IBinder) getServiceMethod.invoke(null, service);
             Method asInterfaceMethod = Class.forName(type + "$Stub").getMethod("asInterface", IBinder.class);
             return (IInterface) asInterfaceMethod.invoke(null, binder);
         } catch (Exception e) {
@@ -47,65 +40,69 @@ public final class ServiceManager {
         }
     }
 
-    public static WindowManager getWindowManager() {
+    public WindowManager getWindowManager() {
         if (windowManager == null) {
-            windowManager = WindowManager.create();
+            windowManager = new WindowManager(getService("window", "android.view.IWindowManager"));
         }
         return windowManager;
     }
 
-    public static DisplayManager getDisplayManager() {
+    public DisplayManager getDisplayManager() {
         if (displayManager == null) {
-            displayManager = DisplayManager.create();
+            displayManager = new DisplayManager(getService("display", "android.hardware.display.IDisplayManager"));
         }
         return displayManager;
     }
 
-    public static InputManager getInputManager() {
+    public InputManager getInputManager() {
         if (inputManager == null) {
-            inputManager = InputManager.create();
+            inputManager = new InputManager(getService("input", "android.hardware.input.IInputManager"));
         }
         return inputManager;
     }
 
-    public static PowerManager getPowerManager() {
+    public PowerManager getPowerManager() {
         if (powerManager == null) {
-            powerManager = PowerManager.create();
+            powerManager = new PowerManager(getService("power", "android.os.IPowerManager"));
         }
         return powerManager;
     }
 
-    public static StatusBarManager getStatusBarManager() {
+    public StatusBarManager getStatusBarManager() {
         if (statusBarManager == null) {
-            statusBarManager = StatusBarManager.create();
+            statusBarManager = new StatusBarManager(getService("statusbar", "com.android.internal.statusbar.IStatusBarService"));
         }
         return statusBarManager;
     }
 
-    public static ClipboardManager getClipboardManager() {
+    public ClipboardManager getClipboardManager() {
         if (clipboardManager == null) {
-            // May be null, some devices have no clipboard manager
-            clipboardManager = ClipboardManager.create();
+            IInterface clipboard = getService("clipboard", "android.content.IClipboard");
+            if (clipboard == null) {
+                // Some devices have no clipboard manager
+                // <https://github.com/Genymobile/scrcpy/issues/1440>
+                // <https://github.com/Genymobile/scrcpy/issues/1556>
+                return null;
+            }
+            clipboardManager = new ClipboardManager(clipboard);
         }
         return clipboardManager;
     }
 
-    public static ActivityManager getActivityManager() {
+    public ActivityManager getActivityManager() {
         if (activityManager == null) {
-            activityManager = ActivityManager.create();
-        }
-        return activityManager;
-    }
-
-    public static CameraManager getCameraManager() {
-        if (cameraManager == null) {
             try {
-                Constructor<CameraManager> ctor = CameraManager.class.getDeclaredConstructor(Context.class);
-                cameraManager = ctor.newInstance(FakeContext.get());
+                // On old Android versions, the ActivityManager is not exposed via AIDL,
+                // so use ActivityManagerNative.getDefault()
+                Class<?> cls = Class.forName("android.app.ActivityManagerNative");
+                Method getDefaultMethod = cls.getDeclaredMethod("getDefault");
+                IInterface am = (IInterface) getDefaultMethod.invoke(null);
+                activityManager = new ActivityManager(am);
             } catch (Exception e) {
                 throw new AssertionError(e);
             }
         }
-        return cameraManager;
+
+        return activityManager;
     }
 }

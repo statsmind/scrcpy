@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CodecOption {
-    private final String key;
-    private final Object value;
+    private String key;
+    private Object value;
 
     public CodecOption(String key, Object value) {
         this.key = key;
@@ -21,7 +21,7 @@ public class CodecOption {
     }
 
     public static List<CodecOption> parse(String codecOptions) {
-        if (codecOptions.isEmpty()) {
+        if ("-".equals(codecOptions)) {
             return null;
         }
 

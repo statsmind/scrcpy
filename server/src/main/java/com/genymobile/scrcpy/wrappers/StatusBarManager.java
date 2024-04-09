@@ -4,35 +4,24 @@ import com.genymobile.scrcpy.Ln;
 
 import android.os.IInterface;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-public final class StatusBarManager {
+public class StatusBarManager {
 
     private final IInterface manager;
     private Method expandNotificationsPanelMethod;
-    private boolean expandNotificationPanelMethodCustomVersion;
     private Method expandSettingsPanelMethod;
     private boolean expandSettingsPanelMethodNewVersion = true;
     private Method collapsePanelsMethod;
 
-    static StatusBarManager create() {
-        IInterface manager = ServiceManager.getService("statusbar", "com.android.internal.statusbar.IStatusBarService");
-        return new StatusBarManager(manager);
-    }
-
-    private StatusBarManager(IInterface manager) {
+    public StatusBarManager(IInterface manager) {
         this.manager = manager;
     }
 
     private Method getExpandNotificationsPanelMethod() throws NoSuchMethodException {
         if (expandNotificationsPanelMethod == null) {
-            try {
-                expandNotificationsPanelMethod = manager.getClass().getMethod("expandNotificationsPanel");
-            } catch (NoSuchMethodException e) {
-                // Custom version for custom vendor ROM: <https://github.com/Genymobile/scrcpy/issues/2551>
-                expandNotificationsPanelMethod = manager.getClass().getMethod("expandNotificationsPanel", int.class);
-                expandNotificationPanelMethodCustomVersion = true;
-            }
+            expandNotificationsPanelMethod = manager.getClass().getMethod("expandNotificationsPanel");
         }
         return expandNotificationsPanelMethod;
     }
@@ -61,12 +50,8 @@ public final class StatusBarManager {
     public void expandNotificationsPanel() {
         try {
             Method method = getExpandNotificationsPanelMethod();
-            if (expandNotificationPanelMethodCustomVersion) {
-                method.invoke(manager, 0);
-            } else {
-                method.invoke(manager);
-            }
-        } catch (ReflectiveOperationException e) {
+            method.invoke(manager);
+        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
             Ln.e("Could not invoke method", e);
         }
     }
@@ -81,7 +66,7 @@ public final class StatusBarManager {
                 // old version
                 method.invoke(manager);
             }
-        } catch (ReflectiveOperationException e) {
+        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
             Ln.e("Could not invoke method", e);
         }
     }
@@ -90,7 +75,7 @@ public final class StatusBarManager {
         try {
             Method method = getCollapsePanelsMethod();
             method.invoke(manager);
-        } catch (ReflectiveOperationException e) {
+        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
             Ln.e("Could not invoke method", e);
         }
     }

@@ -1,55 +1,34 @@
 package com.genymobile.scrcpy;
 
 import java.io.IOException;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 
 public final class DeviceMessageSender {
 
-    private final ControlChannel controlChannel;
+    private final Connection connection;
 
-    private Thread thread;
-    private final BlockingQueue<DeviceMessage> queue = new ArrayBlockingQueue<>(16);
+    private String clipboardText;
 
-    public DeviceMessageSender(ControlChannel controlChannel) {
-        this.controlChannel = controlChannel;
+    public DeviceMessageSender(Connection connection) {
+        this.connection = connection;
     }
 
-    public void send(DeviceMessage msg) {
-        if (!queue.offer(msg)) {
-            Ln.w("Device message dropped: " + msg.getType());
-        }
+    public synchronized void pushClipboardText(String text) {
+        clipboardText = text;
+        notify();
     }
 
-    private void loop() throws IOException, InterruptedException {
-        while (!Thread.currentThread().isInterrupted()) {
-            DeviceMessage msg = queue.take();
-            controlChannel.send(msg);
-        }
-    }
-
-    public void start() {
-        thread = new Thread(() -> {
-            try {
-                loop();
-            } catch (IOException | InterruptedException e) {
-                // this is expected on close
-            } finally {
-                Ln.d("Device message sender stopped");
+    public void loop() throws IOException, InterruptedException {
+        while (true) {
+            String text;
+            synchronized (this) {
+                while (clipboardText == null) {
+                    wait();
+                }
+                text = clipboardText;
+                clipboardText = null;
             }
-        }, "control-send");
-        thread.start();
-    }
-
-    public void stop() {
-        if (thread != null) {
-            thread.interrupt();
-        }
-    }
-
-    public void join() throws InterruptedException {
-        if (thread != null) {
-            thread.join();
+            DeviceMessage event = DeviceMessage.createClipboard(text);
+            connection.sendDeviceMessage(event);
         }
     }
 }

@@ -1,5 +1,8 @@
 package com.genymobile.scrcpy;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+
 /**
  * Union of all supported event types, identified by their {@code type}.
  */
@@ -17,34 +20,36 @@ public final class ControlMessage {
     public static final int TYPE_SET_CLIPBOARD = 9;
     public static final int TYPE_SET_SCREEN_POWER_MODE = 10;
     public static final int TYPE_ROTATE_DEVICE = 11;
-    public static final int TYPE_UHID_CREATE = 12;
-    public static final int TYPE_UHID_INPUT = 13;
-    public static final int TYPE_OPEN_HARD_KEYBOARD_SETTINGS = 14;
+    public static final int TYPE_CHANGE_STREAM_PARAMETERS = 101;
+    public static final int TYPE_PUSH_FILE = 102;
 
-    public static final long SEQUENCE_INVALID = 0;
-
-    public static final int COPY_KEY_NONE = 0;
-    public static final int COPY_KEY_COPY = 1;
-    public static final int COPY_KEY_CUT = 2;
+    public static final int PUSH_STATE_NEW = 0;
+    public static final int PUSH_STATE_START = 1;
+    public static final int PUSH_STATE_APPEND = 2;
+    public static final int PUSH_STATE_FINISH = 3;
+    public static final int PUSH_STATE_CANCEL = 4;
 
     private int type;
     private String text;
     private int metaState; // KeyEvent.META_*
     private int action; // KeyEvent.ACTION_* or MotionEvent.ACTION_* or POWER_MODE_*
     private int keycode; // KeyEvent.KEYCODE_*
-    private int actionButton; // MotionEvent.BUTTON_*
     private int buttons; // MotionEvent.BUTTON_*
     private long pointerId;
     private float pressure;
     private Position position;
-    private float hScroll;
-    private float vScroll;
-    private int copyKey;
+    private int hScroll;
+    private int vScroll;
     private boolean paste;
     private int repeat;
-    private long sequence;
-    private int id;
-    private byte[] data;
+    private byte[] bytes;
+    private short pushId;
+    private int pushState;
+    private byte[] pushChunk;
+    private int pushChunkSize;
+    private int fileSize;
+    private String fileName;
+    private VideoSettings videoSettings;
 
     private ControlMessage() {
     }
@@ -66,26 +71,23 @@ public final class ControlMessage {
         return msg;
     }
 
-    public static ControlMessage createInjectTouchEvent(int action, long pointerId, Position position, float pressure, int actionButton,
-            int buttons) {
+    public static ControlMessage createInjectTouchEvent(int action, long pointerId, Position position, float pressure, int buttons) {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_INJECT_TOUCH_EVENT;
         msg.action = action;
         msg.pointerId = pointerId;
         msg.pressure = pressure;
         msg.position = position;
-        msg.actionButton = actionButton;
         msg.buttons = buttons;
         return msg;
     }
 
-    public static ControlMessage createInjectScrollEvent(Position position, float hScroll, float vScroll, int buttons) {
+    public static ControlMessage createInjectScrollEvent(Position position, int hScroll, int vScroll) {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_INJECT_SCROLL_EVENT;
         msg.position = position;
         msg.hScroll = hScroll;
         msg.vScroll = vScroll;
-        msg.buttons = buttons;
         return msg;
     }
 
@@ -96,17 +98,9 @@ public final class ControlMessage {
         return msg;
     }
 
-    public static ControlMessage createGetClipboard(int copyKey) {
-        ControlMessage msg = new ControlMessage();
-        msg.type = TYPE_GET_CLIPBOARD;
-        msg.copyKey = copyKey;
-        return msg;
-    }
-
-    public static ControlMessage createSetClipboard(long sequence, String text, boolean paste) {
+    public static ControlMessage createSetClipboard(String text, boolean paste) {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_SET_CLIPBOARD;
-        msg.sequence = sequence;
         msg.text = text;
         msg.paste = paste;
         return msg;
@@ -122,25 +116,53 @@ public final class ControlMessage {
         return msg;
     }
 
+    public static ControlMessage createChangeSteamParameters(byte[] bytes) {
+        ControlMessage event = new ControlMessage();
+        event.type = TYPE_CHANGE_STREAM_PARAMETERS;
+        event.videoSettings = VideoSettings.fromByteArray(bytes);
+        return event;
+    }
+
+    public static ControlMessage createFilePush(byte[] bytes) {
+        ControlMessage event = new ControlMessage();
+        event.type = TYPE_PUSH_FILE;
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        event.pushId = buffer.getShort();
+        event.pushState = buffer.get();
+        switch (event.pushState) {
+            case PUSH_STATE_START:
+                event.fileSize = buffer.getInt();
+                short nameLength = buffer.getShort();
+                byte[] textBuffer = new byte[nameLength];
+                buffer.get(textBuffer, 0, nameLength);
+                event.fileName = new String(textBuffer, 0, nameLength, StandardCharsets.UTF_8);
+                break;
+            case PUSH_STATE_APPEND:
+                int chunkSize = buffer.getInt();
+                byte[] chunk = new byte[chunkSize];
+                if (buffer.remaining() >= chunkSize) {
+                    buffer.get(chunk, 0, chunkSize);
+                    event.pushChunkSize = chunkSize;
+                    event.pushChunk = chunk;
+                } else {
+                    event.pushState = PUSH_STATE_CANCEL;
+                }
+                break;
+            case PUSH_STATE_NEW:
+            case PUSH_STATE_CANCEL:
+            case PUSH_STATE_FINISH:
+                break;
+                // nothing special;
+            default:
+                Ln.w("Unknown push event state: " + event.pushState);
+                return null;
+        }
+        return event;
+    }
+
     public static ControlMessage createEmpty(int type) {
         ControlMessage msg = new ControlMessage();
         msg.type = type;
-        return msg;
-    }
-
-    public static ControlMessage createUhidCreate(int id, byte[] reportDesc) {
-        ControlMessage msg = new ControlMessage();
-        msg.type = TYPE_UHID_CREATE;
-        msg.id = id;
-        msg.data = reportDesc;
-        return msg;
-    }
-
-    public static ControlMessage createUhidInput(int id, byte[] data) {
-        ControlMessage msg = new ControlMessage();
-        msg.type = TYPE_UHID_INPUT;
-        msg.id = id;
-        msg.data = data;
         return msg;
     }
 
@@ -164,10 +186,6 @@ public final class ControlMessage {
         return keycode;
     }
 
-    public int getActionButton() {
-        return actionButton;
-    }
-
     public int getButtons() {
         return buttons;
     }
@@ -184,16 +202,12 @@ public final class ControlMessage {
         return position;
     }
 
-    public float getHScroll() {
+    public int getHScroll() {
         return hScroll;
     }
 
-    public float getVScroll() {
+    public int getVScroll() {
         return vScroll;
-    }
-
-    public int getCopyKey() {
-        return copyKey;
     }
 
     public boolean getPaste() {
@@ -204,15 +218,35 @@ public final class ControlMessage {
         return repeat;
     }
 
-    public long getSequence() {
-        return sequence;
+    public byte[] getBytes() {
+        return bytes;
     }
 
-    public int getId() {
-        return id;
+    public short getPushId() {
+        return pushId;
     }
 
-    public byte[] getData() {
-        return data;
+    public int getPushState() {
+        return pushState;
+    }
+
+    public byte[] getPushChunk() {
+        return pushChunk;
+    }
+
+    public int getPushChunkSize() {
+        return pushChunkSize;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public int getFileSize() {
+        return fileSize;
+    }
+
+    public VideoSettings getVideoSettings() {
+        return videoSettings;
     }
 }
