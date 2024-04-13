@@ -1,10 +1,10 @@
-apply plugin: 'com.android.library'
+apply plugin: 'com.android.application'
 
 android {
-    namespace 'com.genymobile.scrcpy'
+    namespace 'com.statsmind.scrcpy.websocket'
     compileSdk 34
     defaultConfig {
-//        applicationId "com.genymobile.scrcpy"
+        applicationId "com.statsmind.scrcpy.websocket"
         minSdkVersion 21
         targetSdkVersion 34
         versionCode 20400
@@ -17,14 +17,14 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
     buildFeatures {
         buildConfig true
-        aidl true
     }
 }
 
 dependencies {
+    implementation project(':server')
+
     testImplementation 'junit:junit:4.13.2'
 }
-
-apply from: "$project.rootDir/config/android-checkstyle.gradle"
