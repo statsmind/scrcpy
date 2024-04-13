@@ -11,6 +11,7 @@ public final class Ln {
     private static final String TAG = "scrcpy";
     private static final String PREFIX = "[server] ";
     private static Level threshold = Level.INFO;
+    private static boolean systemOutPrint = true;
 
     private Ln() {
         // not instantiable
@@ -34,35 +35,46 @@ public final class Ln {
     public static void v(String message) {
         if (isEnabled(Level.VERBOSE)) {
             Log.v(TAG, message);
-            System.out.println(PREFIX + "VERBOSE: " + message);
+            if (systemOutPrint) {
+                System.out.println(PREFIX + "VERBOSE: " + message);
+            }
         }
     }
 
     public static void d(String message) {
         if (isEnabled(Level.DEBUG)) {
             Log.d(TAG, message);
-            System.out.println(PREFIX + "DEBUG: " + message);
+            if (systemOutPrint) {
+                System.out.println(PREFIX + "DEBUG: " + message);
+            }
         }
     }
 
     public static void i(String message) {
         if (isEnabled(Level.INFO)) {
             Log.i(TAG, message);
-            System.out.println(PREFIX + "INFO: " + message);
+            if (systemOutPrint) {
+                System.out.println(PREFIX + "INFO: " + message);
+            }
         }
     }
 
     public static void w(String message) {
         if (isEnabled(Level.WARN)) {
             Log.w(TAG, message);
-            System.out.println(PREFIX + "WARN: " + message);
+            if (systemOutPrint) {
+                System.out.println(PREFIX + "WARN: " + message);
+            }
         }
     }
 
     public static void e(String message, Throwable throwable) {
         if (isEnabled(Level.ERROR)) {
             Log.e(TAG, message, throwable);
-            System.out.println(PREFIX + "ERROR: " + message);
+            if (systemOutPrint) {
+                System.out.println(PREFIX + "ERROR: " + message);
+            }
+
             if (throwable != null) {
                 throwable.printStackTrace();
             }

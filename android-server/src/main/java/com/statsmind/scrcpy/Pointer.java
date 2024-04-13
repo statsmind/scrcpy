@@ -1,7 +1,5 @@
 package com.statsmind.scrcpy;
 
-import com.statsmind.scrcpy.Point;
-
 public class Pointer {
 
     /**

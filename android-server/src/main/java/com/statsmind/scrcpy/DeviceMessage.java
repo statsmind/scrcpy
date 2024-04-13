@@ -1,89 +1,59 @@
 package com.statsmind.scrcpy;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
+public final class DeviceMessage {
 
-public abstract class DeviceMessage {
-    public static final int MAX_EVENT_SIZE = 4096;
     public static final int TYPE_CLIPBOARD = 0;
-    public static final int TYPE_PUSH_RESPONSE = 101;
-    private static final int MESSAGE_MAX_SIZE = 1 << 18; // 256k
-    private int type;
+    public static final int TYPE_ACK_CLIPBOARD = 1;
+    public static final int TYPE_UHID_OUTPUT = 2;
 
-    private DeviceMessage(int type) {
-        this.type = type;
+    private int type;
+    private String text;
+    private long sequence;
+    private int id;
+    private byte[] data;
+
+    private DeviceMessage() {
     }
 
     public static DeviceMessage createClipboard(String text) {
-        return new ClipboardMessage(text);
+        DeviceMessage event = new DeviceMessage();
+        event.type = TYPE_CLIPBOARD;
+        event.text = text;
+        return event;
     }
 
-    public static DeviceMessage createPushResponse(short id, int result) {
-        return new FilePushResponseMessage(id, result);
+    public static DeviceMessage createAckClipboard(long sequence) {
+        DeviceMessage event = new DeviceMessage();
+        event.type = TYPE_ACK_CLIPBOARD;
+        event.sequence = sequence;
+        return event;
+    }
+
+    public static DeviceMessage createUhidOutput(int id, byte[] data) {
+        DeviceMessage event = new DeviceMessage();
+        event.type = TYPE_UHID_OUTPUT;
+        event.id = id;
+        event.data = data;
+        return event;
     }
 
     public int getType() {
         return type;
     }
 
-    public void writeToByteArray(byte[] array) {
-        writeToByteArray(array, 0);
+    public String getText() {
+        return text;
     }
 
-    public byte[] writeToByteArray(int offset) {
-        byte[] temp = new byte[offset + this.getLen()];
-        writeToByteArray(temp, offset);
-        return temp;
+    public long getSequence() {
+        return sequence;
     }
 
-    public abstract void writeToByteArray(byte[] array, int offset);
-
-    public abstract int getLen();
-
-    private static final class ClipboardMessage extends DeviceMessage {
-        public static final int CLIPBOARD_TEXT_MAX_LENGTH = MESSAGE_MAX_SIZE - 5; // type: 1 byte; length: 4 bytes
-        private byte[] raw;
-        private int len;
-
-        private ClipboardMessage(String text) {
-            super(TYPE_CLIPBOARD);
-            this.raw = text.getBytes(StandardCharsets.UTF_8);
-            this.len = StringUtils.getUtf8TruncationIndex(raw, CLIPBOARD_TEXT_MAX_LENGTH);
-        }
-
-        public void writeToByteArray(byte[] array, int offset) {
-            ByteBuffer buffer = ByteBuffer.wrap(array, offset, array.length - offset);
-            buffer.put((byte) this.getType());
-            buffer.putInt(len);
-            buffer.put(raw, 0, len);
-        }
-
-        public int getLen() {
-            return 5 + len;
-        }
+    public int getId() {
+        return id;
     }
 
-    private static final class FilePushResponseMessage extends DeviceMessage {
-        private short id;
-        private int result;
-
-        private FilePushResponseMessage(short id, int result) {
-            super(TYPE_PUSH_RESPONSE);
-            this.id = id;
-            this.result = result;
-        }
-
-        @Override
-        public void writeToByteArray(byte[] array, int offset) {
-            ByteBuffer buffer = ByteBuffer.wrap(array, offset, array.length - offset);
-            buffer.put((byte) this.getType());
-            buffer.putShort(id);
-            buffer.put((byte) result);
-        }
-
-        @Override
-        public int getLen() {
-            return 4;
-        }
+    public byte[] getData() {
+        return data;
     }
 }

@@ -232,7 +232,7 @@ execute_server(struct sc_server *server,
             SERVER_DEBUGGER_PORT;
 #endif
     cmd[count++] = "/"; // unused
-    cmd[count++] = "com.genymobile.scrcpy.Server";
+    cmd[count++] = "com.statsmind.scrcpy.Server";
     cmd[count++] = SCRCPY_VERSION;
 
     unsigned dyn_idx = count; // from there, the strings are allocated

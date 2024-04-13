@@ -1,24 +1,23 @@
 package com.statsmind.scrcpy.wrappers;
 
+import com.statsmind.scrcpy.Ln;
+
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.IBinder;
 import android.view.Surface;
-import com.statsmind.scrcpy.Ln;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 @SuppressLint("PrivateApi")
 public final class SurfaceControl {
 
+    private static final Class<?> CLASS;
+
     // see <https://android.googlesource.com/platform/frameworks/base.git/+/pie-release-2/core/java/android/view/SurfaceControl.java#305>
     public static final int POWER_MODE_OFF = 0;
     public static final int POWER_MODE_NORMAL = 2;
-    private static final Class<?> CLASS;
-    private static Method getBuiltInDisplayMethod;
-    private static Method setDisplayPowerModeMethod;
 
     static {
         try {
@@ -27,6 +26,11 @@ public final class SurfaceControl {
             throw new AssertionError(e);
         }
     }
+
+    private static Method getBuiltInDisplayMethod;
+    private static Method setDisplayPowerModeMethod;
+    private static Method getPhysicalDisplayTokenMethod;
+    private static Method getPhysicalDisplayIdsMethod;
 
     private SurfaceControl() {
         // only static methods
@@ -73,12 +77,8 @@ public final class SurfaceControl {
         }
     }
 
-    public static IBinder createDisplay(String name, boolean secure) {
-        try {
-            return (IBinder) CLASS.getMethod("createDisplay", String.class, boolean.class).invoke(null, name, secure);
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
+    public static IBinder createDisplay(String name, boolean secure) throws Exception {
+        return (IBinder) CLASS.getMethod("createDisplay", String.class, boolean.class).invoke(null, name, secure);
     }
 
     private static Method getGetBuiltInDisplayMethod() throws NoSuchMethodException {
@@ -95,7 +95,6 @@ public final class SurfaceControl {
     }
 
     public static IBinder getBuiltInDisplay() {
-
         try {
             Method method = getGetBuiltInDisplayMethod();
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -105,7 +104,50 @@ public final class SurfaceControl {
 
             // call getInternalDisplayToken()
             return (IBinder) method.invoke(null);
-        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke method", e);
+            return null;
+        }
+    }
+
+    private static Method getGetPhysicalDisplayTokenMethod() throws NoSuchMethodException {
+        if (getPhysicalDisplayTokenMethod == null) {
+            getPhysicalDisplayTokenMethod = CLASS.getMethod("getPhysicalDisplayToken", long.class);
+        }
+        return getPhysicalDisplayTokenMethod;
+    }
+
+    public static IBinder getPhysicalDisplayToken(long physicalDisplayId) {
+        try {
+            Method method = getGetPhysicalDisplayTokenMethod();
+            return (IBinder) method.invoke(null, physicalDisplayId);
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke method", e);
+            return null;
+        }
+    }
+
+    private static Method getGetPhysicalDisplayIdsMethod() throws NoSuchMethodException {
+        if (getPhysicalDisplayIdsMethod == null) {
+            getPhysicalDisplayIdsMethod = CLASS.getMethod("getPhysicalDisplayIds");
+        }
+        return getPhysicalDisplayIdsMethod;
+    }
+
+    public static boolean hasPhysicalDisplayIdsMethod() {
+        try {
+            getGetPhysicalDisplayIdsMethod();
+            return true;
+        } catch (NoSuchMethodException e) {
+            return false;
+        }
+    }
+
+    public static long[] getPhysicalDisplayIds() {
+        try {
+            Method method = getGetPhysicalDisplayIdsMethod();
+            return (long[]) method.invoke(null);
+        } catch (ReflectiveOperationException e) {
             Ln.e("Could not invoke method", e);
             return null;
         }
@@ -123,7 +165,7 @@ public final class SurfaceControl {
             Method method = getSetDisplayPowerModeMethod();
             method.invoke(null, displayToken, mode);
             return true;
-        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
+        } catch (ReflectiveOperationException e) {
             Ln.e("Could not invoke method", e);
             return false;
         }

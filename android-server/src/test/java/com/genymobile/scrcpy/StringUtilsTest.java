@@ -1,4 +1,4 @@
-package com.genymobile.scrcpy;
+package com.statsmind.scrcpy;
 
 import com.statsmind.scrcpy.StringUtils;
 import org.junit.Assert;

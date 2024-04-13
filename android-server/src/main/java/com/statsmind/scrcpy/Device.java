@@ -1,16 +1,23 @@
 package com.statsmind.scrcpy;
 
+import com.statsmind.scrcpy.wrappers.ClipboardManager;
+import com.statsmind.scrcpy.wrappers.DisplayControl;
+import com.statsmind.scrcpy.wrappers.InputManager;
+import com.statsmind.scrcpy.wrappers.ServiceManager;
+import com.statsmind.scrcpy.wrappers.SurfaceControl;
+import com.statsmind.scrcpy.wrappers.WindowManager;
+
 import android.content.IOnPrimaryClipChangedListener;
-import android.content.Intent;
 import android.graphics.Rect;
-import android.media.projection.MediaProjection;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
-import android.view.*;
-import com.statsmind.scrcpy.wrappers.SurfaceControl;
-import com.statsmind.scrcpy.wrappers.WindowManager;
-import com.statsmind.scrcpy.wrappers.*;
+import android.view.IDisplayFoldListener;
+import android.view.IRotationWatcher;
+import android.view.InputDevice;
+import android.view.InputEvent;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -19,76 +26,128 @@ public final class Device {
     public static final int POWER_MODE_OFF = SurfaceControl.POWER_MODE_OFF;
     public static final int POWER_MODE_NORMAL = SurfaceControl.POWER_MODE_NORMAL;
 
+    public static final int INJECT_MODE_ASYNC = InputManager.INJECT_INPUT_EVENT_MODE_ASYNC;
+    public static final int INJECT_MODE_WAIT_FOR_RESULT = InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT;
+    public static final int INJECT_MODE_WAIT_FOR_FINISH = InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH;
+
     public static final int LOCK_VIDEO_ORIENTATION_UNLOCKED = -1;
     public static final int LOCK_VIDEO_ORIENTATION_INITIAL = -2;
 
-    private static final ServiceManager SERVICE_MANAGER = new ServiceManager();
+    public interface RotationListener {
+        void onRotationChanged(int rotation);
+    }
+
+    public interface FoldListener {
+        void onFoldChanged(int displayId, boolean folded);
+    }
+
+    public interface ClipboardListener {
+        void onClipboardTextChanged(String text);
+    }
+
+    private final Rect crop;
+    private int maxSize;
+    private final int lockVideoOrientation;
+
+    private Size deviceSize;
+    private ScreenInfo screenInfo;
+    private RotationListener rotationListener;
+    private FoldListener foldListener;
+    private ClipboardListener clipboardListener;
     private final AtomicBoolean isSettingClipboard = new AtomicBoolean();
+
     /**
      * Logical display identifier
      */
     private final int displayId;
+
     /**
      * The surface flinger layer stack associated with this logical display
      */
     private final int layerStack;
-    private final boolean supportsInputEvents;
-    private ScreenInfo screenInfo;
-    private RotationListener rotationListener;
-    private ClipboardListener clipboardListener;
-    private IRotationWatcher rotationWatcher;
-    private IOnPrimaryClipChangedListener clipChangedListener;
 
-    public Device(final Options options, final VideoSettings videoSettings) {
-        displayId = videoSettings.getDisplayId();
-        final DisplayInfo displayInfo = Device.getDisplayInfo(displayId);
+    private final boolean supportsInputEvents;
+
+    public Device(Options options) throws ConfigurationException {
+        displayId = options.getDisplayId();
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
         if (displayInfo == null) {
-            throw new InvalidDisplayIdException(displayId, Device.getDisplayIds());
+            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+            throw new ConfigurationException("Unknown display id: " + displayId);
         }
 
         int displayInfoFlags = displayInfo.getFlags();
 
-        screenInfo = ScreenInfo.computeScreenInfo(displayInfo, videoSettings);
+        deviceSize = displayInfo.getSize();
+        crop = options.getCrop();
+        maxSize = options.getMaxSize();
+        lockVideoOrientation = options.getLockVideoOrientation();
+
+        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
         layerStack = displayInfo.getLayerStack();
 
-        rotationWatcher = new IRotationWatcher.Stub() {
+        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
             @Override
             public void onRotationChanged(int rotation) {
                 synchronized (Device.this) {
-                    applyNewVideoSetting(videoSettings);
+                    screenInfo = screenInfo.withDeviceRotation(rotation);
 
+                    // notify
                     if (rotationListener != null) {
                         rotationListener.onRotationChanged(rotation);
                     }
                 }
             }
-        };
+        }, displayId);
 
-        SERVICE_MANAGER.getWindowManager().registerRotationWatcher(rotationWatcher, displayId);
-
-        if (options.getControl()) {
-            // If control is enabled, synchronize Android clipboard to the computer automatically
-            ClipboardManager clipboardManager = SERVICE_MANAGER.getClipboardManager();
-            clipChangedListener = new IOnPrimaryClipChangedListener.Stub() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceManager.getWindowManager().registerDisplayFoldListener(new IDisplayFoldListener.Stub() {
                 @Override
-                public void dispatchPrimaryClipChanged() {
-                    if (isSettingClipboard.get()) {
-                        // This is a notification for the change we are currently applying, ignore it
+                public void onDisplayFoldChanged(int displayId, boolean folded) {
+                    if (Device.this.displayId != displayId) {
+                        // Ignore events related to other display ids
                         return;
                     }
+
                     synchronized (Device.this) {
-                        if (clipboardListener != null) {
-                            String text = getClipboardText();
-                            if (text != null) {
-                                clipboardListener.onClipboardTextChanged(text);
-                            }
+                        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+                        if (displayInfo == null) {
+                            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+                            return;
+                        }
+
+                        deviceSize = displayInfo.getSize();
+                        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
+                        // notify
+                        if (foldListener != null) {
+                            foldListener.onFoldChanged(displayId, folded);
                         }
                     }
                 }
-            };
+            });
+        }
 
+        if (options.getControl() && options.getClipboardAutosync()) {
+            // If control and autosync are enabled, synchronize Android clipboard to the computer automatically
+            ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
             if (clipboardManager != null) {
-                clipboardManager.addPrimaryClipChangedListener(clipChangedListener);
+                clipboardManager.addPrimaryClipChangedListener(new IOnPrimaryClipChangedListener.Stub() {
+                    @Override
+                    public void dispatchPrimaryClipChanged() {
+                        if (isSettingClipboard.get()) {
+                            // This is a notification for the change we are currently applying, ignore it
+                            return;
+                        }
+                        synchronized (Device.this) {
+                            if (clipboardListener != null) {
+                                String text = getClipboardText();
+                                if (text != null) {
+                                    clipboardListener.onClipboardTextChanged(text);
+                                }
+                            }
+                        }
+                    }
+                });
             } else {
                 Ln.w("No clipboard manager, copy-paste between device and computer will not work");
             }
@@ -105,135 +164,21 @@ public final class Device {
         }
     }
 
-    public static String getDeviceName() {
-        return Build.MODEL;
+    public int getDisplayId() {
+        return displayId;
     }
 
-    public static boolean supportsInputEvents(int displayId) {
-        return displayId == 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
-    }
-
-    public static boolean injectEvent(InputEvent inputEvent, int displayId) {
-        if (!supportsInputEvents(displayId)) {
-            throw new AssertionError("Could not inject input event if !supportsInputEvents()");
-        }
-
-        if (displayId != 0 && !InputManager.setDisplayId(inputEvent, displayId)) {
-            return false;
-        }
-
-        return SERVICE_MANAGER.getInputManager().injectInputEvent(inputEvent, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
-    }
-
-    public static boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState, int displayId) {
-        long now = SystemClock.uptimeMillis();
-        KeyEvent event = new KeyEvent(now, now, action, keyCode, repeat, metaState, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
-                InputDevice.SOURCE_KEYBOARD);
-        return injectEvent(event, displayId);
-    }
-
-    public static boolean pressReleaseKeycode(int keyCode, int displayId) {
-        return injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0, displayId) && injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0, displayId);
-    }
-
-    public static boolean isScreenOn() {
-        return SERVICE_MANAGER.getPowerManager().isScreenOn();
-    }
-
-    public static void expandNotificationPanel() {
-        SERVICE_MANAGER.getStatusBarManager().expandNotificationsPanel();
-    }
-
-    public static void expandSettingsPanel() {
-        SERVICE_MANAGER.getStatusBarManager().expandSettingsPanel();
-    }
-
-    public static void collapsePanels() {
-        SERVICE_MANAGER.getStatusBarManager().collapsePanels();
-    }
-
-    public static String getClipboardText() {
-        ClipboardManager clipboardManager = SERVICE_MANAGER.getClipboardManager();
-        if (clipboardManager == null) {
-            return null;
-        }
-        CharSequence s = clipboardManager.getText();
-        if (s == null) {
-            return null;
-        }
-        return s.toString();
-    }
-
-    /**
-     * @param mode one of the {@code POWER_MODE_*} constants
-     */
-    public static boolean setScreenPowerMode(int mode) {
-        IBinder d = SurfaceControl.getBuiltInDisplay();
-        if (d == null) {
-            Ln.e("Could not get built-in display");
-            return false;
-        }
-        return SurfaceControl.setDisplayPowerMode(d, mode);
-    }
-
-    public static boolean powerOffScreen(int displayId) {
-        if (!isScreenOn()) {
-            return true;
-        }
-        return pressReleaseKeycode(KeyEvent.KEYCODE_POWER, displayId);
-    }
-
-    /**
-     * Disable auto-rotation (if enabled), set the screen rotation and re-enable auto-rotation (if it was enabled).
-     */
-    public static void rotateDevice() {
-        WindowManager wm = SERVICE_MANAGER.getWindowManager();
-
-        boolean accelerometerRotation = !wm.isRotationFrozen();
-
-        int currentRotation = wm.getRotation();
-        int newRotation = (currentRotation & 1) ^ 1; // 0->1, 1->0, 2->1, 3->0
-        String newRotationString = newRotation == 0 ? "portrait" : "landscape";
-
-        Ln.i("Device rotation requested: " + newRotationString);
-        wm.freezeRotation(newRotation);
-
-        // restore auto-rotate if necessary
-        if (accelerometerRotation) {
-            wm.thawRotation();
-        }
-    }
-
-    public static ContentProvider createSettingsProvider() {
-        return SERVICE_MANAGER.getActivityManager().createSettingsProvider();
-    }
-
-    public static MediaProjectionManager getMediaProjectionManager() {
-        return SERVICE_MANAGER.getMediaProjectionManager();
-    }
-
-    public static int[] getDisplayIds() {
-        return SERVICE_MANAGER.getDisplayManager().getDisplayIds();
-    }
-
-    public static DisplayInfo getDisplayInfo(int displayId) {
-        return SERVICE_MANAGER.getDisplayManager().getDisplayInfo(displayId);
+    public synchronized void setMaxSize(int newMaxSize) {
+        maxSize = newMaxSize;
+        screenInfo = ScreenInfo.computeScreenInfo(screenInfo.getReverseVideoRotation(), deviceSize, crop, newMaxSize, lockVideoOrientation);
     }
 
     public synchronized ScreenInfo getScreenInfo() {
         return screenInfo;
     }
 
-    public synchronized void setScreenInfo(ScreenInfo screenInfo) {
-        this.screenInfo = screenInfo;
-    }
-
     public int getLayerStack() {
         return layerStack;
-    }
-
-    public void applyNewVideoSetting(VideoSettings videoSettings) {
-        this.setScreenInfo(ScreenInfo.computeScreenInfo(Device.getDisplayInfo(displayId), videoSettings));
     }
 
     public Point getPhysicalPoint(Position position) {
@@ -252,7 +197,6 @@ public final class Device {
         if (!unlockedVideoSize.equals(clientVideoSize)) {
             // The client sends a click relative to a video with wrong dimensions,
             // the device may have been rotated since the event was generated, so ignore the event
-            Ln.e("unlockedVideoSize=" + unlockedVideoSize + ",clientVideoSize=" + clientVideoSize);
             return null;
         }
         Rect contentRect = screenInfo.getContentRect();
@@ -262,32 +206,96 @@ public final class Device {
         return new Point(convertedX, convertedY);
     }
 
+    public static String getDeviceName() {
+        return Build.MODEL;
+    }
+
+    public static boolean supportsInputEvents(int displayId) {
+        return displayId == 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+    }
+
     public boolean supportsInputEvents() {
         return supportsInputEvents;
     }
 
-    public boolean injectEvent(InputEvent event) {
-        return injectEvent(event, displayId);
+    public static boolean injectEvent(InputEvent inputEvent, int displayId, int injectMode) {
+        if (!supportsInputEvents(displayId)) {
+            throw new AssertionError("Could not inject input event if !supportsInputEvents()");
+        }
+
+        if (displayId != 0 && !InputManager.setDisplayId(inputEvent, displayId)) {
+            return false;
+        }
+
+        return ServiceManager.getInputManager().injectInputEvent(inputEvent, injectMode);
     }
 
-    public boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState) {
-        return injectKeyEvent(action, keyCode, repeat, metaState, displayId);
+    public boolean injectEvent(InputEvent event, int injectMode) {
+        return injectEvent(event, displayId, injectMode);
     }
 
-    public boolean pressReleaseKeycode(int keyCode) {
-        return pressReleaseKeycode(keyCode, displayId);
+    public static boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState, int displayId, int injectMode) {
+        long now = SystemClock.uptimeMillis();
+        KeyEvent event = new KeyEvent(now, now, action, keyCode, repeat, metaState, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
+                InputDevice.SOURCE_KEYBOARD);
+        return injectEvent(event, displayId, injectMode);
+    }
+
+    public boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState, int injectMode) {
+        return injectKeyEvent(action, keyCode, repeat, metaState, displayId, injectMode);
+    }
+
+    public static boolean pressReleaseKeycode(int keyCode, int displayId, int injectMode) {
+        return injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0, displayId, injectMode)
+                && injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0, displayId, injectMode);
+    }
+
+    public boolean pressReleaseKeycode(int keyCode, int injectMode) {
+        return pressReleaseKeycode(keyCode, displayId, injectMode);
+    }
+
+    public static boolean isScreenOn() {
+        return ServiceManager.getPowerManager().isScreenOn();
     }
 
     public synchronized void setRotationListener(RotationListener rotationListener) {
         this.rotationListener = rotationListener;
     }
 
+    public synchronized void setFoldListener(FoldListener foldlistener) {
+        this.foldListener = foldlistener;
+    }
+
     public synchronized void setClipboardListener(ClipboardListener clipboardListener) {
         this.clipboardListener = clipboardListener;
     }
 
+    public static void expandNotificationPanel() {
+        ServiceManager.getStatusBarManager().expandNotificationsPanel();
+    }
+
+    public static void expandSettingsPanel() {
+        ServiceManager.getStatusBarManager().expandSettingsPanel();
+    }
+
+    public static void collapsePanels() {
+        ServiceManager.getStatusBarManager().collapsePanels();
+    }
+
+    public static String getClipboardText() {
+        ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
+        if (clipboardManager == null) {
+            return null;
+        }
+        CharSequence s = clipboardManager.getText();
+        if (s == null) {
+            return null;
+        }
+        return s.toString();
+    }
+
     public boolean setClipboardText(String text) {
-        ClipboardManager clipboardManager = SERVICE_MANAGER.getClipboardManager();
+        ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
         if (clipboardManager == null) {
             return false;
         }
@@ -307,27 +315,74 @@ public final class Device {
         return ok;
     }
 
-    public void release() {
-        if (clipChangedListener != null) {
-            ClipboardManager clipboardManager = SERVICE_MANAGER.getClipboardManager();
-            if (clipboardManager != null) {
-                clipboardManager.removePrimaryClipChangedListener(clipChangedListener);
+    /**
+     * @param mode one of the {@code POWER_MODE_*} constants
+     */
+    public static boolean setScreenPowerMode(int mode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // On Android 14, these internal methods have been moved to DisplayControl
+            boolean useDisplayControl =
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !SurfaceControl.hasPhysicalDisplayIdsMethod();
+
+            // Change the power mode for all physical displays
+            long[] physicalDisplayIds = useDisplayControl ? DisplayControl.getPhysicalDisplayIds() : SurfaceControl.getPhysicalDisplayIds();
+            if (physicalDisplayIds == null) {
+                Ln.e("Could not get physical display ids");
+                return false;
             }
-            this.clipboardListener = null;
+
+            boolean allOk = true;
+            for (long physicalDisplayId : physicalDisplayIds) {
+                IBinder binder = useDisplayControl ? DisplayControl.getPhysicalDisplayToken(
+                        physicalDisplayId) : SurfaceControl.getPhysicalDisplayToken(physicalDisplayId);
+                allOk &= SurfaceControl.setDisplayPowerMode(binder, mode);
+            }
+            return allOk;
         }
-        if (rotationWatcher != null) {
-            SERVICE_MANAGER.getWindowManager().unregisterRotationWatcher(rotationWatcher);
-            rotationWatcher = null;
+
+        // Older Android versions, only 1 display
+        IBinder d = SurfaceControl.getBuiltInDisplay();
+        if (d == null) {
+            Ln.e("Could not get built-in display");
+            return false;
         }
-        this.rotationListener = null;
-        this.clipboardListener = null;
+        return SurfaceControl.setDisplayPowerMode(d, mode);
     }
 
-    public interface RotationListener {
-        void onRotationChanged(int rotation);
+    public static boolean powerOffScreen(int displayId) {
+        if (!isScreenOn()) {
+            return true;
+        }
+        return pressReleaseKeycode(KeyEvent.KEYCODE_POWER, displayId, Device.INJECT_MODE_ASYNC);
     }
 
-    public interface ClipboardListener {
-        void onClipboardTextChanged(String text);
+    /**
+     * Disable auto-rotation (if enabled), set the screen rotation and re-enable auto-rotation (if it was enabled).
+     */
+    public void rotateDevice() {
+        WindowManager wm = ServiceManager.getWindowManager();
+
+        boolean accelerometerRotation = !wm.isRotationFrozen(displayId);
+
+        int currentRotation = getCurrentRotation(displayId);
+        int newRotation = (currentRotation & 1) ^ 1; // 0->1, 1->0, 2->1, 3->0
+        String newRotationString = newRotation == 0 ? "portrait" : "landscape";
+
+        Ln.i("Device rotation requested: " + newRotationString);
+        wm.freezeRotation(displayId, newRotation);
+
+        // restore auto-rotate if necessary
+        if (accelerometerRotation) {
+            wm.thawRotation(displayId);
+        }
+    }
+
+    private static int getCurrentRotation(int displayId) {
+        if (displayId == 0) {
+            return ServiceManager.getWindowManager().getRotation();
+        }
+
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+        return displayInfo.getRotation();
     }
 }

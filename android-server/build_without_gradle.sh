@@ -35,7 +35,7 @@ mkdir -p "$CLASSES_DIR"
 mkdir -p "$GEN_DIR/com/genymobile/scrcpy"
 
 << EOF cat > "$GEN_DIR/com/genymobile/scrcpy/BuildConfig.java"
-package com.genymobile.scrcpy;
+package com.statsmind.scrcpy;
 
 public final class BuildConfig {
   public static final boolean DEBUG = $SCRCPY_DEBUG;
