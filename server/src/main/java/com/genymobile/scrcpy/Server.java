@@ -255,6 +255,16 @@ public final class Server {
             return;
         }
 
+        if (options.getVideoOutputFile() != null) {
+            Tools.dumpVideo(options);
+            return;
+        }
+
+        if (options.getAudioOutputFile() != null) {
+            Tools.dumpAudio(options);
+            return;
+        }
+
         try {
             scrcpy(options);
         } catch (ConfigurationException e) {

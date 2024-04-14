@@ -54,6 +54,11 @@ public class Options {
     private boolean sendDummyByte = true; // write a byte on start to detect connection issues
     private boolean sendCodecMeta = true; // write the codec metadata before the stream
 
+    private String videoOutputFile;
+    private int videoDuration = 30;
+    private String audioOutputFile;
+    private int audioDuration = 30;
+
     public Ln.Level getLogLevel() {
         return logLevel;
     }
@@ -224,6 +229,22 @@ public class Options {
 
     public boolean getSendCodecMeta() {
         return sendCodecMeta;
+    }
+
+    public String getVideoOutputFile() {
+        return videoOutputFile;
+    }
+
+    public int getVideoDuration() {
+        return videoDuration;
+    }
+
+    public String getAudioOutputFile() {
+        return audioOutputFile;
+    }
+
+    public int getAudioDuration() {
+        return audioDuration;
     }
 
     @SuppressWarnings("MethodLength")
