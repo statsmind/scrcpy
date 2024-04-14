@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SurfaceEncoder implements AsyncProcessor {
 
-    private static final int DEFAULT_I_FRAME_INTERVAL = 10; // seconds
+    private static final int DEFAULT_I_FRAME_INTERVAL = 1; // seconds
     private static final int REPEAT_FRAME_DELAY_US = 100_000; // repeat after 100ms
     private static final String KEY_MAX_FPS_TO_ENCODER = "max-fps-to-encoder";
 
@@ -218,10 +218,10 @@ public class SurfaceEncoder implements AsyncProcessor {
         format.setString(MediaFormat.KEY_MIME, videoMimeType);
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
         // must be present to configure the encoder, but does not impact the actual frame rate, which is variable
-        format.setInteger(MediaFormat.KEY_FRAME_RATE, 60);
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, maxFps);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, DEFAULT_I_FRAME_INTERVAL);
-//        format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
+        format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 10);
 
         // display the very first frame, and recover from bad quality when no new frames
         format.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_FRAME_DELAY_US); // µs

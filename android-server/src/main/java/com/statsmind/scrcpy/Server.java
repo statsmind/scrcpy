@@ -130,7 +130,6 @@ public final class Server {
 
         WebSocketProxy websocketProxy = new WebSocketProxy(options);
         websocketProxy.start();
-        websocketProxy.waitForReady();
 
         DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte);
         try {

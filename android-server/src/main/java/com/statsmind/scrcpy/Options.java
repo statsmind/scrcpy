@@ -10,6 +10,7 @@ public class Options {
 
     private Ln.Level logLevel = Ln.Level.DEBUG;
     private int scid = -1; // 31-bit non-negative value, or -1
+    private int serverPort = 21708;
     private boolean video = true;
     private boolean audio = true;
     private int maxSize;
@@ -57,6 +58,10 @@ public class Options {
 
     public Ln.Level getLogLevel() {
         return logLevel;
+    }
+
+    public int getServerPort() {
+        return serverPort;
     }
 
     public int getScid() {
@@ -259,6 +264,9 @@ public class Options {
                     break;
                 case "log_level":
                     options.logLevel = Ln.Level.valueOf(value.toUpperCase(Locale.ENGLISH));
+                    break;
+                case "server_port":
+                    options.serverPort = Integer.parseInt(value);
                     break;
                 case "video":
                     options.video = Boolean.parseBoolean(value);

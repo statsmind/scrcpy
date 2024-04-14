@@ -36,7 +36,9 @@ public final class Streamer {
             ByteBuffer buffer = ByteBuffer.allocate(4);
             buffer.putInt(codec.getId());
             buffer.flip();
-            IO.writeFully(fd, buffer);
+
+            writePacket(buffer);
+//            IO.writeFully(fd, buffer);
         }
     }
 
@@ -60,10 +62,26 @@ public final class Streamer {
         if (error) {
             code[3] = 1;
         }
-        IO.writeFully(fd, code, 0, code.length);
+
+        IO.writeFully(fd, ByteBuffer.wrap(code, 0, code.length));
     }
 
     public void writePacket(ByteBuffer buffer) throws IOException {
+        if (buffer.remaining() >= 5) {
+            int position = buffer.position();
+            byte[] head = new byte[5];
+            buffer.get(head, 0, 5);
+            buffer.position(position);
+
+            if (head[3] == 1 && head[4] == 97) {
+                // ignore
+            } else if (head[3] != 1) {
+                // ignore
+            } else {
+                Ln.i("stream head " + Binary.byteToHex(head[0]) + " " + Binary.byteToHex(head[1]) + " " + Binary.byteToHex(head[2]) + " " + Binary.byteToHex(head[3]) + " " + Binary.byteToHex(head[4]));
+            }
+        }
+
         IO.writeFully(fd, buffer);
     }
 
@@ -79,11 +97,11 @@ public final class Streamer {
         }
 
         if (sendFrameMeta) {
-            Ln.d("send frame meta");
             writeFrameMeta(fd, buffer.remaining(), pts, config, keyFrame);
         }
 
-        IO.writeFully(fd, buffer);
+        writePacket(buffer);
+//        IO.writeFully(fd, buffer);
     }
 
     public void writePacket(ByteBuffer codecBuffer, MediaCodec.BufferInfo bufferInfo) throws IOException {
@@ -109,7 +127,9 @@ public final class Streamer {
         headerBuffer.putLong(ptsAndFlags);
         headerBuffer.putInt(packetSize);
         headerBuffer.flip();
-        IO.writeFully(fd, headerBuffer);
+
+        writePacket(headerBuffer);
+//        IO.writeFully(fd, headerBuffer);
     }
 
     private static void fixOpusConfigPacket(ByteBuffer buffer) throws IOException {

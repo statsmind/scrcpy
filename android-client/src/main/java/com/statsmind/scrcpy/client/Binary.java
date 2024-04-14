@@ -1,6 +1,4 @@
-package com.statsmind.scrcpy;
-
-import java.nio.ByteBuffer;
+package com.statsmind.scrcpy.client;
 
 public final class Binary {
     private Binary() {
@@ -36,32 +34,6 @@ public final class Binary {
     public static float i16FixedPointToFloat(short value) {
         // 0x1p15f is 2^15 as float
         return value == 0x7fff ? 1f : (value / 0x1p15f);
-    }
-
-    public static ByteBuffer duplicate(ByteBuffer buffer) {
-        int position = buffer.position();
-
-        ByteBuffer dup = ByteBuffer.allocateDirect(buffer.remaining());
-        dup.put(buffer);
-        dup.flip();
-
-        buffer.position(position);
-
-        return dup;
-    }
-
-    public static String byteBufferToHex(ByteBuffer buffer) {
-        int position = buffer.position();
-        byte[] bytes = new byte[buffer.remaining()];
-        buffer.get(bytes, 0, bytes.length);
-        buffer.position(position);
-
-        StringBuilder result = new StringBuilder();
-        for (byte aByte : bytes) {
-            result.append(" ").append(byteToHex(aByte));
-        }
-
-        return result.toString();
     }
 
     public static String byteToHex(byte b) {

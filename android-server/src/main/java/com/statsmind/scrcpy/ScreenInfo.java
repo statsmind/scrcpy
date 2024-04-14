@@ -2,6 +2,7 @@ package com.statsmind.scrcpy;
 
 import android.graphics.Rect;
 import com.genymobile.scrcpy.BuildConfig;
+import com.statsmind.scrcpy.websocket.VideoSettings;
 
 public final class ScreenInfo {
     /**
@@ -81,6 +82,33 @@ public final class ScreenInfo {
         return new ScreenInfo(newContentRect, newUnlockedVideoSize, newDeviceRotation, lockedVideoOrientation);
     }
 
+    public static ScreenInfo computeScreenInfo(int rotation, Size deviceSize, VideoSettings videoSettings) {
+        int lockedVideoOrientation = videoSettings.getLockedVideoOrientation();
+        Rect crop = videoSettings.getCrop();
+
+        if (lockedVideoOrientation == Device.LOCK_VIDEO_ORIENTATION_INITIAL) {
+            // The user requested to lock the video orientation to the current orientation
+            lockedVideoOrientation = rotation;
+        }
+
+        Rect contentRect = new Rect(0, 0, deviceSize.getWidth(), deviceSize.getHeight());
+        if (crop != null) {
+            if (rotation % 2 != 0) { // 180s preserve dimensions
+                // the crop (provided by the user) is expressed in the natural orientation
+                crop = flipRect(crop);
+            }
+            if (!contentRect.intersect(crop)) {
+                // intersect() changes contentRect so that it is intersected with crop
+                Ln.w("Crop rectangle (" + formatCrop(crop) + ") does not intersect device screen (" + formatCrop(deviceSize.toRect()) + ")");
+                contentRect = new Rect(); // empty
+            }
+        }
+
+        Size bounds = videoSettings.getBounds();
+        Size videoSize = computeVideoSize(contentRect.width(), contentRect.height(), bounds);
+        return new ScreenInfo(contentRect, videoSize, rotation, lockedVideoOrientation);
+    }
+
     public static ScreenInfo computeScreenInfo(int rotation, Size deviceSize, Rect crop, int maxSize, int lockedVideoOrientation) {
         if (lockedVideoOrientation == Device.LOCK_VIDEO_ORIENTATION_INITIAL) {
             // The user requested to lock the video orientation to the current orientation
@@ -133,6 +161,37 @@ public final class ScreenInfo {
             h = portrait ? major : minor;
         }
         return new Size(w, h);
+    }
+
+    private static Size computeVideoSize(int w, int h, Size bounds) {
+        if (bounds == null) {
+            w &= ~15; // in case it's not a multiple of 16
+            h &= ~15;
+            return new Size(w, h);
+        }
+        int boundsWidth = bounds.getWidth();
+        int boundsHeight = bounds.getHeight();
+        int scaledHeight;
+        int scaledWidth;
+        if (boundsWidth > w) {
+            scaledHeight = h;
+        } else {
+            scaledHeight = boundsWidth * h / w;
+        }
+        if (boundsHeight > scaledHeight) {
+            boundsHeight = scaledHeight;
+        }
+        if (boundsHeight == h) {
+            scaledWidth = w;
+        } else {
+            scaledWidth = boundsHeight * w / h;
+        }
+        if (boundsWidth > scaledWidth) {
+            boundsWidth = scaledWidth;
+        }
+        boundsWidth &= ~15;
+        boundsHeight &= ~15;
+        return new Size(boundsWidth, boundsHeight);
     }
 
     private static Rect flipRect(Rect crop) {

@@ -79,6 +79,7 @@ public final class Device {
         int displayInfoFlags = displayInfo.getFlags();
 
         deviceSize = displayInfo.getSize();
+        deviceSize = new Size(1800, 2392);
         crop = options.getCrop();
         maxSize = options.getMaxSize();
         lockVideoOrientation = options.getLockVideoOrientation();
