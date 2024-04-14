@@ -47,6 +47,8 @@ public class ControlMessageReader {
         }
         buffer.position(head + r);
         buffer.flip();
+
+        Ln.i("control message=" + Binary.bytesToHex(buffer));
     }
 
     public ControlMessage next() {

@@ -141,7 +141,9 @@ public class Controller implements AsyncProcessor {
         ControlMessage msg;
         try {
             msg = controlChannel.recv();
+            Ln.d("control message=" + msg);
         } catch (IOException e) {
+            Ln.e(e.getMessage(), e);
             // this is expected on close
             return false;
         }

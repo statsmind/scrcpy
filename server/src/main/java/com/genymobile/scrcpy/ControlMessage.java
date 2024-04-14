@@ -1,5 +1,7 @@
 package com.genymobile.scrcpy;
 
+import java.util.Arrays;
+
 /**
  * Union of all supported event types, identified by their {@code type}.
  */
@@ -217,5 +219,29 @@ public final class ControlMessage {
 
     public byte[] getData() {
         return data;
+    }
+
+    @Override
+    public String toString() {
+        return "ControlMessage{" +
+                "type=" + type +
+                ", text='" + text + '\'' +
+                ", metaState=" + metaState +
+                ", action=" + action +
+                ", keycode=" + keycode +
+                ", actionButton=" + actionButton +
+                ", buttons=" + buttons +
+                ", pointerId=" + pointerId +
+                ", pressure=" + pressure +
+                ", position=" + position +
+                ", hScroll=" + hScroll +
+                ", vScroll=" + vScroll +
+                ", copyKey=" + copyKey +
+                ", paste=" + paste +
+                ", repeat=" + repeat +
+                ", sequence=" + sequence +
+                ", id=" + id +
+                ", data=" + Arrays.toString(data) +
+                '}';
     }
 }

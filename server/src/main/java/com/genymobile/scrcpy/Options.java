@@ -59,6 +59,7 @@ public class Options {
     private String audioOutputFile;
     private int audioOutputDuration = 30;
     private boolean dumpBinary = false;
+    private boolean dumpMessage = false;
     private int websocketPort = 0;
 
     public Ln.Level getLogLevel() {
@@ -251,6 +252,10 @@ public class Options {
 
     public boolean isDumpBinary() {
         return dumpBinary;
+    }
+
+    public boolean isDumpMessage() {
+        return dumpMessage;
     }
 
     public int getWebsocketPort() {
@@ -470,6 +475,9 @@ public class Options {
                     break;
                 case "dump_binary":
                     options.dumpBinary = Boolean.parseBoolean(value);
+                    break;
+                case "dump_message":
+                    options.dumpMessage = Boolean.parseBoolean(value);
                     break;
                 case "websocket_port":
                     options.websocketPort = Integer.parseInt(value);
