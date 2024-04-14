@@ -1,5 +1,7 @@
 package com.genymobile.scrcpy;
 
+import java.nio.ByteBuffer;
+
 public final class Binary {
     private Binary() {
         // not instantiable
@@ -34,5 +36,45 @@ public final class Binary {
     public static float i16FixedPointToFloat(short value) {
         // 0x1p15f is 2^15 as float
         return value == 0x7fff ? 1f : (value / 0x1p15f);
+    }
+
+    public static String byteToHex(byte num) {
+        char[] hexDigits = new char[2];
+        hexDigits[0] = Character.forDigit((num >> 4) & 0xF, 16);
+        hexDigits[1] = Character.forDigit((num & 0xF), 16);
+        return new String(hexDigits);
+    }
+
+    public static String bytesToHex(ByteBuffer buffer) {
+        return bytesToHex(byteBufferToBytes(buffer));
+    }
+
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder formatted = new StringBuilder();
+
+        for (int i = 0; i < bytes.length; ++i) {
+            formatted.append(byteToHex(bytes[i])).append(" ");
+            if (i % 32 == 31) {
+                formatted.append("\n");
+            } else if (i % 4 == 3) {
+                formatted.append("   ");
+            }
+
+        }
+
+        return formatted.toString();
+    }
+
+    public static byte[] byteBufferToBytes(ByteBuffer buffer) {
+        byte[] out = new byte[buffer.remaining()];
+        int position = buffer.position();
+        buffer.get(out);
+        buffer.position(position);
+
+        return out;
+    }
+
+    public static ByteBuffer duplicate(ByteBuffer buffer) {
+        return ByteBuffer.wrap(byteBufferToBytes(buffer));
     }
 }

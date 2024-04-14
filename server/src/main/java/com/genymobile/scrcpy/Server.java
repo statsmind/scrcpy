@@ -122,6 +122,13 @@ public final class Server {
 
         Workarounds.apply(audio, camera);
 
+        if (options.getWebsocketPort() > 0) {
+            options.setTunnelForward(false);
+
+            WebSocketProxy webSocketProxy = new WebSocketProxy(options);
+            webSocketProxy.start();
+        }
+
         List<AsyncProcessor> asyncProcessors = new ArrayList<>();
 
         DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte);
@@ -143,7 +150,7 @@ public final class Server {
             if (audio) {
                 AudioCodec audioCodec = options.getAudioCodec();
                 AudioCapture audioCapture = new AudioCapture(options.getAudioSource());
-                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
+                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta(), options.isDumpBinary());
                 AsyncProcessor audioRecorder;
                 if (audioCodec == AudioCodec.RAW) {
                     audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
@@ -156,7 +163,7 @@ public final class Server {
 
             if (video) {
                 Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
-                        options.getSendFrameMeta());
+                        options.getSendFrameMeta(), options.isDumpBinary());
                 SurfaceCapture surfaceCapture;
                 if (options.getVideoSource() == VideoSource.DISPLAY) {
                     surfaceCapture = new ScreenCapture(device);

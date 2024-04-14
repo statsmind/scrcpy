@@ -13,12 +13,12 @@ public class Options {
     private boolean audio = true;
     private int maxSize;
     private VideoCodec videoCodec = VideoCodec.H264;
-    private AudioCodec audioCodec = AudioCodec.OPUS;
+    private AudioCodec audioCodec = AudioCodec.AAC;
     private VideoSource videoSource = VideoSource.DISPLAY;
     private AudioSource audioSource = AudioSource.OUTPUT;
     private int videoBitRate = 8000000;
     private int audioBitRate = 128000;
-    private int maxFps;
+    private int maxFps = 60;
     private int lockVideoOrientation = -1;
     private boolean tunnelForward;
     private Rect crop;
@@ -49,15 +49,17 @@ public class Options {
     private boolean listCameraSizes;
 
     // Options not used by the scrcpy client, but useful to use scrcpy-server directly
-    private boolean sendDeviceMeta = true; // send device name and size
-    private boolean sendFrameMeta = true; // send PTS so that the client may record properly
-    private boolean sendDummyByte = true; // write a byte on start to detect connection issues
-    private boolean sendCodecMeta = true; // write the codec metadata before the stream
+    private boolean sendDeviceMeta = false; // send device name and size
+    private boolean sendFrameMeta = false; // send PTS so that the client may record properly
+    private boolean sendDummyByte = false; // write a byte on start to detect connection issues
+    private boolean sendCodecMeta = false; // write the codec metadata before the stream
 
     private String videoOutputFile;
-    private int videoDuration = 30;
+    private int videoOutputDuration = 30;
     private String audioOutputFile;
-    private int audioDuration = 30;
+    private int audioOutputDuration = 30;
+    private boolean dumpBinary = false;
+    private int websocketPort = 0;
 
     public Ln.Level getLogLevel() {
         return logLevel;
@@ -235,16 +237,28 @@ public class Options {
         return videoOutputFile;
     }
 
-    public int getVideoDuration() {
-        return videoDuration;
+    public int getVideoOutputDuration() {
+        return videoOutputDuration;
     }
 
     public String getAudioOutputFile() {
         return audioOutputFile;
     }
 
-    public int getAudioDuration() {
-        return audioDuration;
+    public int getAudioOutputDuration() {
+        return audioOutputDuration;
+    }
+
+    public boolean isDumpBinary() {
+        return dumpBinary;
+    }
+
+    public int getWebsocketPort() {
+        return websocketPort;
+    }
+
+    public void setTunnelForward(boolean tunnelForward) {
+        this.tunnelForward = tunnelForward;
     }
 
     @SuppressWarnings("MethodLength")
@@ -441,6 +455,24 @@ public class Options {
                         options.sendDummyByte = false;
                         options.sendCodecMeta = false;
                     }
+                    break;
+                case "video_output_file":
+                    options.videoOutputFile = value;
+                    break;
+                case "video_output_duration":
+                    options.videoOutputDuration = Integer.parseInt(value);
+                    break;
+                case "audio_output_file":
+                    options.audioOutputFile = value;
+                    break;
+                case "audio_output_duration":
+                    options.audioOutputDuration = Integer.parseInt(value);
+                    break;
+                case "dump_binary":
+                    options.dumpBinary = Boolean.parseBoolean(value);
+                    break;
+                case "websocket_port":
+                    options.websocketPort = Integer.parseInt(value);
                     break;
                 default:
                     Ln.w("Unknown server option: " + key);

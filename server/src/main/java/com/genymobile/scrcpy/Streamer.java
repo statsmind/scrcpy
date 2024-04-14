@@ -17,14 +17,16 @@ public final class Streamer {
     private final Codec codec;
     private final boolean sendCodecMeta;
     private final boolean sendFrameMeta;
+    private final boolean dumpBinary;
 
     private final ByteBuffer headerBuffer = ByteBuffer.allocate(12);
 
-    public Streamer(FileDescriptor fd, Codec codec, boolean sendCodecMeta, boolean sendFrameMeta) {
+    public Streamer(FileDescriptor fd, Codec codec, boolean sendCodecMeta, boolean sendFrameMeta, boolean dumpBinary) {
         this.fd = fd;
         this.codec = codec;
         this.sendCodecMeta = sendCodecMeta;
         this.sendFrameMeta = sendFrameMeta;
+        this.dumpBinary = dumpBinary;
     }
 
     public Codec getCodec() {
@@ -47,7 +49,8 @@ public final class Streamer {
             buffer.putInt(videoSize.getWidth());
             buffer.putInt(videoSize.getHeight());
             buffer.flip();
-            IO.writeFully(fd, buffer);
+//            IO.writeFully(fd, buffer);
+            writePacket(buffer);
         }
     }
 
@@ -75,7 +78,8 @@ public final class Streamer {
             writeFrameMeta(fd, buffer.remaining(), pts, config, keyFrame);
         }
 
-        IO.writeFully(fd, buffer);
+//        IO.writeFully(fd, buffer);
+        writePacket(buffer);
     }
 
     public void writePacket(ByteBuffer codecBuffer, MediaCodec.BufferInfo bufferInfo) throws IOException {
@@ -101,7 +105,16 @@ public final class Streamer {
         headerBuffer.putLong(ptsAndFlags);
         headerBuffer.putInt(packetSize);
         headerBuffer.flip();
-        IO.writeFully(fd, headerBuffer);
+//        IO.writeFully(fd, headerBuffer);
+        writePacket(headerBuffer);
+    }
+
+    public void writePacket(ByteBuffer buffer) throws IOException {
+        if (dumpBinary) {
+            Ln.d("packet content:\n" + Binary.bytesToHex(buffer));
+        }
+
+        IO.writeFully(fd, buffer);
     }
 
     private static void fixOpusConfigPacket(ByteBuffer buffer) throws IOException {

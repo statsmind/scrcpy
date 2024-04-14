@@ -21,6 +21,9 @@ public final class ControlMessage {
     public static final int TYPE_UHID_INPUT = 13;
     public static final int TYPE_OPEN_HARD_KEYBOARD_SETTINGS = 14;
 
+    public static final int TYPE_STREAM_VIDEO = 70;
+    public static final int TYPE_STREAM_AUDIO = 71;
+
     public static final long SEQUENCE_INVALID = 0;
 
     public static final int COPY_KEY_NONE = 0;

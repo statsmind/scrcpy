@@ -2,6 +2,7 @@ package com.genymobile.scrcpy;
 
 import android.annotation.TargetApi;
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Handler;
@@ -70,6 +71,7 @@ public final class AudioEncoder implements AsyncProcessor {
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
         format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, CHANNELS);
         format.setInteger(MediaFormat.KEY_SAMPLE_RATE, SAMPLE_RATE);
+        format.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
 
         if (codecOptions != null) {
             for (CodecOption option : codecOptions) {
@@ -106,11 +108,42 @@ public final class AudioEncoder implements AsyncProcessor {
             OutputTask task = outputTasks.take();
             ByteBuffer buffer = mediaCodec.getOutputBuffer(task.index);
             try {
-                streamer.writePacket(buffer, task.bufferInfo);
+                // @jameshu fix for ADTS
+                MediaCodec.BufferInfo info = task.bufferInfo;
+                int outBitsSize = info.size;
+                int outPacketSize = outBitsSize + 7;    // 7 is ADTS size
+
+                buffer.position(info.offset);
+                buffer.limit(info.offset + outBitsSize);
+
+                byte[] data = new byte[outPacketSize];  //space for ADTS header included
+                addADTStoPacket(data, outPacketSize);
+                buffer.get(data, 7, outBitsSize);
+                buffer.position(info.offset);
+
+//                streamer.writePacket(buffer, task.bufferInfo);
+                streamer.writePacket(ByteBuffer.wrap(data));
             } finally {
                 mediaCodec.releaseOutputBuffer(task.index, false);
             }
         }
+    }
+
+    // @jameshu fix for ADTS
+    // https://blog.csdn.net/mozushixin_1/article/details/92830785
+    private void addADTStoPacket(byte[] packet, int packetLen) {
+        int profile = 2;  //AAC LC
+        // 39=MediaCodecInfo.CodecProfileLevel.AACObjectELD;
+        int freqIdx = 3;  //48KHz
+        int chanCfg = 2;
+        // CPE    // fill in ADTS data
+        packet[0] = (byte) 0xFF;
+        packet[1] = (byte) 0xF9;
+        packet[2] = (byte) (((profile - 1) << 6) + (freqIdx << 2) + (chanCfg >> 2));
+        packet[3] = (byte) (((chanCfg & 3) << 6) + (packetLen >> 11));
+        packet[4] = (byte) ((packetLen & 0x7FF) >> 3);
+        packet[5] = (byte) (((packetLen & 7) << 5) + 0x1F);
+        packet[6] = (byte) 0xFC;
     }
 
     @Override
