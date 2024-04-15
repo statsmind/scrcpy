@@ -122,7 +122,9 @@ public final class Server {
 
         Workarounds.apply(audio, camera);
 
+        // @jameshu injected
         if (options.getWebsocketPort() > 0) {
+            // DesktopConnection 需要主动连接到 WebSocketProxy
             options.setTunnelForward(false);
 
             WebSocketProxy webSocketProxy = new WebSocketProxy(options);

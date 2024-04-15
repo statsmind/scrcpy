@@ -77,4 +77,11 @@ public final class Binary {
     public static ByteBuffer duplicate(ByteBuffer buffer) {
         return ByteBuffer.wrap(byteBufferToBytes(buffer));
     }
+
+    public static byte[] duplicate(byte[] bytes, int offset, int len) {
+        byte[] dupBytes = new byte[len];
+        System.arraycopy(bytes, offset, dupBytes, 0, len);
+
+        return dupBytes;
+    }
 }
