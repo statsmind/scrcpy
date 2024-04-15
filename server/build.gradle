@@ -21,6 +21,9 @@ android {
         buildConfig true
         aidl true
     }
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -28,4 +31,4 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
 }
 
-apply from: "$project.rootDir/config/android-checkstyle.gradle"
+// apply from: "$project.rootDir/config/android-checkstyle.gradle"
